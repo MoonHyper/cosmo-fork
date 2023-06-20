@@ -1,101 +1,56 @@
 require "./cosmo/logger"
 require "./util"
 require "./cosmo/runtime/interpreter"
-require "option_parser"
+require "optparse/time"
 
 module Cosmo
   extend self
 
-  # Parse options
-  @@options = {} of Symbol => Bool
-  begin
-    OptionParser.new do |opts|
-      opts.banner = "Thank you for using Cosmo!\nUsage: cosmo [OPTIONS] [FILE]"
-      opts.on("-a", "--ast", "Outputs the AST") do
-        @@options[:ast] = true
-      end
-      opts.on("-B", "--benchmark", "Outputs the execution time of the lexer, parser, resolver, and interpreter") do
-        @@options[:benchmark] = true
-      end
-      opts.on("-e", "--error-trace", "Toggles full error message mode (shows Cosmo source code backtraces)") do
-        Logger.debug = true
-      end
-      opts.on("-h", "--help", "Outputs help menu for Cosmo CLI") do
-        puts opts
-        exit
-      end
-      opts.on("-v", "--version", "Outputs the current version of Cosmo") do
-        puts "Cosmo #{Version}"
-        exit
-      end
-    end.parse(ARGV)
-  rescue ex : OptionParser::InvalidOption
-    puts ex.message
-  end
+  @@options = {}
+  OptionParser.new do |opts|
+    opts.banner = "Thank you for using Cosmo!\nUsage: cosmo [OPTIONS] [FILE]"
+    opts.on("-a", "--ast", "Outputs the AST") { @@options[:ast] = true }
+    opts.on("-B", "--benchmark", "Outputs the execution time of the lexer, parser, resolver, and interpreter") { @@options[:benchmark] = true }
+    opts.on("-e", "--error-trace", "Toggles full error message mode (shows Cosmo source code backtraces)") { Logger.debug = true }
+    opts.on("-h", "--help", "Outputs help menu for Cosmo CLI") { puts opts; exit }
+    opts.on("-v", "--version", "Outputs the current version of Cosmo") { puts "Cosmo #{Version}"; exit }
+  end.parse!
 
-  @@interpreter = Interpreter.new(
-    output_ast: @@options.has_key?(:ast),
-    run_benchmarks: @@options.has_key?(:benchmark)
-  )
+  @@interpreter = Interpreter.new(output_ast: @@options.has_key?(:ast), run_benchmarks: @@options.has_key?(:benchmark))
 
-  def read_source(source : String, file_path : String) : ValueType
+  def read_source(source: String, file_path: String): ValueType
     begin
       @@interpreter.interpret(source, file_path)
-    rescue ex : Exception
+    rescue ex: Exception
       bug = !Logger.debug?
-      msg = (bug ? "BUG: " : "") + "#{ex.inspect_with_backtrace}"
-      if bug
-        msg += "\nYou've found a bug! Please open an issue, including source code so we can reproduce the bug: https://github.com/cosmo-lang/cosmo/issues"
-      end
-
+      msg = "#{bug ? 'BUG: ' : ''}#{ex.inspect_with_backtrace}"
+      msg += "\nYou've found a bug! Please open an issue, including source code so we can reproduce the bug: https://github.com/cosmo-lang/cosmo/issues" if bug
       abort msg, 1
     end
   end
 
-  # Reads a file at `path` and returns it's contents
-  def read_file(path : String)
+  def read_file(path: String)
     begin
-      contents = File.read(path)
+      contents = File.binread(path)
       read_source(contents, file_path: path)
-    rescue ex : Exception
+    rescue ex: Exception
       abort "Failed to read file \"#{path}\": \n#{ex.message}\n\t#{ex.backtrace.join("\n\t")}", 1
     end
   end
 
-  private def rainbow(text : String) : String
-    colors = [31, 33, 32, 36, 35]  # red, yellow, green, cyan, and purple
-    text_chars = text.chars
-    color_index = 0
-    rainbow_str = ""
-
-    text_chars.each do |char|
-      color_code = colors[color_index]
-      rainbow_str += "\e[#{color_code}m#{char}\e[0m"  # Apply color and reset back to default
-      color_index = (color_index + 1) % colors.size
-    end
-
-    rainbow_str
-  end
-
-  # Starts the REPL
   def run_repl
-    puts "Welcome to the #{rainbow "Cosmo"} REPL!"
+    colors = [31, 33, 32, 36, 35]
+    color_index = 0
+    puts "Welcome to the #{colors.map { |c| "\e[#{c}mCosmo\e[0m"[color_index += 1] }.join()} REPL!"
     loop do
       STDOUT.write(Util::Color.light_green("» ").to_slice)
       line = STDIN.gets
       break if line.nil? || line.chomp.empty?
-
       result = read_source(line, file_path: "repl")
     end
   end
 
-  def options
-    @@options
-  end
+  def options; @@options; end
 end
 
-if ARGV.empty?
-  Cosmo.run_repl
-else
-  Cosmo.read_file(ARGV.first)
-end
+ARGV.empty? ? Cosmo.run_repl : Cosmo.read_file(path: ARGV.first)
